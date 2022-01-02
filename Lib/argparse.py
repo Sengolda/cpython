@@ -117,10 +117,8 @@ class _AttributeHolder(object):
 
     def __repr__(self):
         type_name = type(self).__name__
-        arg_strings = []
         star_args = {}
-        for arg in self._get_args():
-            arg_strings.append(repr(arg))
+        arg_strings = [repr(arg) for arg in self._get_args()]
         for name, value in self._get_kwargs():
             if name.isidentifier():
                 arg_strings.append('%s=%r' % (name, value))
@@ -344,10 +342,7 @@ class HelpFormatter(object):
                 def get_lines(parts, indent, prefix=None):
                     lines = []
                     line = []
-                    if prefix is not None:
-                        line_len = len(prefix) - 1
-                    else:
-                        line_len = len(indent) - 1
+                    line_len = len(prefix) - 1 if prefix is not None else len(indent) - 1
                     for part in parts:
                         if line_len + 1 + len(part) > text_width and line:
                             lines.append(indent + ' '.join(line))
@@ -440,20 +435,17 @@ class HelpFormatter(object):
                 elif inserts.get(i + 1) == '|':
                     inserts.pop(i + 1)
 
-            # produce all arg strings
             elif not action.option_strings:
                 default = self._get_default_metavar_for_positional(action)
                 part = self._format_args(action, default)
 
                 # if it's in a group, strip the outer []
-                if action in group_actions:
-                    if part[0] == '[' and part[-1] == ']':
-                        part = part[1:-1]
+                if action in group_actions and part[0] == '[' and part[-1] == ']':
+                    part = part[1:-1]
 
                 # add the action string to the list
                 parts.append(part)
 
-            # produce the first way to invoke the option in brackets
             else:
                 option_string = action.option_strings[0]
 
@@ -593,30 +585,26 @@ class HelpFormatter(object):
     def _format_args(self, action, default_metavar):
         get_metavar = self._metavar_formatter(action, default_metavar)
         if action.nargs is None:
-            result = '%s' % get_metavar(1)
+            return '%s' % get_metavar(1)
         elif action.nargs == OPTIONAL:
-            result = '[%s]' % get_metavar(1)
+            return '[%s]' % get_metavar(1)
         elif action.nargs == ZERO_OR_MORE:
             metavar = get_metavar(1)
-            if len(metavar) == 2:
-                result = '[%s [%s ...]]' % metavar
-            else:
-                result = '[%s ...]' % metavar
+            return '[%s [%s ...]]' % metavar if len(metavar) == 2 else '[%s ...]' % metavar
         elif action.nargs == ONE_OR_MORE:
-            result = '%s [%s ...]' % get_metavar(2)
+            return '%s [%s ...]' % get_metavar(2)
         elif action.nargs == REMAINDER:
-            result = '...'
+            return '...'
         elif action.nargs == PARSER:
-            result = '%s ...' % get_metavar(1)
+            return '%s ...' % get_metavar(1)
         elif action.nargs == SUPPRESS:
-            result = ''
+            return ''
         else:
             try:
                 formats = ['%s' for _ in range(action.nargs)]
             except TypeError:
                 raise ValueError("invalid nargs value") from None
-            result = ' '.join(formats) % get_metavar(action.nargs)
-        return result
+            return ' '.join(formats) % get_metavar(action.nargs)
 
     def _expand_help(self, action):
         params = dict(vars(action), prog=self._prog)
@@ -696,11 +684,10 @@ class ArgumentDefaultsHelpFormatter(HelpFormatter):
 
     def _get_help_string(self, action):
         help = action.help
-        if '%(default)' not in action.help:
-            if action.default is not SUPPRESS:
-                defaulting_nargs = [OPTIONAL, ZERO_OR_MORE]
-                if action.option_strings or action.nargs in defaulting_nargs:
-                    help += ' (default: %(default)s)'
+        if '%(default)' not in action.help and action.default is not SUPPRESS:
+            defaulting_nargs = [OPTIONAL, ZERO_OR_MORE]
+            if action.option_strings or action.nargs in defaulting_nargs:
+                help += ' (default: %(default)s)'
         return help
 
 
@@ -1466,9 +1453,11 @@ class _ActionsContainer(object):
 
         # set the flag if any option strings look like negative numbers
         for option_string in action.option_strings:
-            if self._negative_number_matcher.match(option_string):
-                if not self._has_negative_number_optionals:
-                    self._has_negative_number_optionals.append(True)
+            if (
+                self._negative_number_matcher.match(option_string)
+                and not self._has_negative_number_optionals
+            ):
+                self._has_negative_number_optionals.append(True)
 
         # return the created action
         return action
@@ -1538,7 +1527,7 @@ class _ActionsContainer(object):
         long_option_strings = []
         for option_string in args:
             # error on strings that don't start with an appropriate prefix
-            if not option_string[0] in self.prefix_chars:
+            if option_string[0] not in self.prefix_chars:
                 args = {'option': option_string,
                         'prefix_chars': self.prefix_chars}
                 msg = _('invalid option string %(option)r: '
@@ -1847,23 +1836,19 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
         return args
 
     def parse_known_args(self, args=None, namespace=None):
-        if args is None:
-            # args default to the system args
-            args = _sys.argv[1:]
-        else:
-            # make sure that args are mutable
-            args = list(args)
-
+        args = _sys.argv[1:] if args is None else list(args)
         # default Namespace built from parser defaults
         if namespace is None:
             namespace = Namespace()
 
         # add any action defaults that aren't present
         for action in self._actions:
-            if action.dest is not SUPPRESS:
-                if not hasattr(namespace, action.dest):
-                    if action.default is not SUPPRESS:
-                        setattr(namespace, action.dest, action.default)
+            if (
+                action.dest is not SUPPRESS
+                and not hasattr(namespace, action.dest)
+                and action.default is not SUPPRESS
+            ):
+                setattr(namespace, action.dest, action.default)
 
         # add any parser defaults that aren't present
         for dest in self._defaults:
@@ -2204,7 +2189,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
             return None
 
         # if it doesn't start with a prefix, it was meant to be positional
-        if not arg_string[0] in self.prefix_chars:
+        if arg_string[0] not in self.prefix_chars:
             return None
 
         # if the option string is present in the parser, return the action
@@ -2244,9 +2229,11 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
         # if it was not found as an option, but it looks like a negative
         # number, it was meant to be positional
         # unless there are negative-number-like options
-        if self._negative_number_matcher.match(arg_string):
-            if not self._has_negative_number_optionals:
-                return None
+        if (
+            self._negative_number_matcher.match(arg_string)
+            and not self._has_negative_number_optionals
+        ):
+            return None
 
         # if it contains a space, it was meant to be a positional
         if ' ' in arg_string:
@@ -2275,10 +2262,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
                         tup = action, option_string, explicit_arg
                         result.append(tup)
 
-        # single character options can be concatenated with their arguments
-        # but multiple character options always have to have their argument
-        # separate
-        elif option_string[0] in chars and option_string[1] not in chars:
+        elif option_string[0] in chars:
             option_prefix = option_string
             explicit_arg = None
             short_option_prefix = option_string[:2]
@@ -2294,7 +2278,6 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
                     tup = action, option_string, explicit_arg
                     result.append(tup)
 
-        # shouldn't ever get here
         else:
             self.error(_('unexpected option string: %s') % option_string)
 
@@ -2444,44 +2427,31 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
 
         # optional argument produces a default when not present
         if not arg_strings and action.nargs == OPTIONAL:
-            if action.option_strings:
-                value = action.const
-            else:
-                value = action.default
+            value = action.const if action.option_strings else action.default
             if isinstance(value, str):
                 value = self._get_value(action, value)
                 self._check_value(action, value)
 
-        # when nargs='*' on a positional, if there were no command-line
-        # args, use the default if it is anything other than None
         elif (not arg_strings and action.nargs == ZERO_OR_MORE and
               not action.option_strings):
-            if action.default is not None:
-                value = action.default
-            else:
-                value = arg_strings
+            value = action.default if action.default is not None else arg_strings
             self._check_value(action, value)
 
-        # single argument or optional argument produces a single value
         elif len(arg_strings) == 1 and action.nargs in [None, OPTIONAL]:
             arg_string, = arg_strings
             value = self._get_value(action, arg_string)
             self._check_value(action, value)
 
-        # REMAINDER arguments convert all values, checking none
         elif action.nargs == REMAINDER:
             value = [self._get_value(action, v) for v in arg_strings]
 
-        # PARSER arguments convert all values, but check only the first
         elif action.nargs == PARSER:
             value = [self._get_value(action, v) for v in arg_strings]
             self._check_value(action, value[0])
 
-        # SUPPRESS argument does not put anything in the namespace
         elif action.nargs == SUPPRESS:
             value = SUPPRESS
 
-        # all other types of nargs produce a list
         else:
             value = [self._get_value(action, v) for v in arg_strings]
             for v in value:

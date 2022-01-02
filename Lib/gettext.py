@@ -142,7 +142,7 @@ def _parse(tokens, priority=-1):
         if i < priority:
             break
         # Break chained comparisons
-        if i in (3, 4) and j in (3, 4):  # '==', '!=', '<', '>', '<=', '>='
+        if i in (3, 4) and j in {3, 4}:  # '==', '!=', '<', '>', '<=', '>='
             result = '(%s)' % result
         # Replace some C operators by their Python equivalents
         op = _c2py_ops.get(nexttok, nexttok)
@@ -359,16 +359,15 @@ class GNUTranslations(NullTranslations):
 
         # Now put all messages from the .mo file buffer into the catalog
         # dictionary.
-        for i in range(0, msgcount):
+        for i in range(msgcount):
             mlen, moff = unpack(ii, buf[masteridx:masteridx+8])
             mend = moff + mlen
             tlen, toff = unpack(ii, buf[transidx:transidx+8])
             tend = toff + tlen
-            if mend < buflen and tend < buflen:
-                msg = buf[moff:mend]
-                tmsg = buf[toff:tend]
-            else:
+            if mend >= buflen or tend >= buflen:
                 raise OSError(0, 'File is corrupt', filename)
+            msg = buf[moff:mend]
+            tmsg = buf[toff:tend]
             # See if we're looking at GNU .mo conventions for metadata
             if mlen == 0:
                 # Catalog description
@@ -433,10 +432,7 @@ class GNUTranslations(NullTranslations):
         except KeyError:
             if self._fallback:
                 return self._fallback.ngettext(msgid1, msgid2, n)
-            if n == 1:
-                tmsg = msgid1
-            else:
-                tmsg = msgid2
+            tmsg = msgid1 if n == 1 else msgid2
         return tmsg
 
     def pgettext(self, context, message):
@@ -456,10 +452,7 @@ class GNUTranslations(NullTranslations):
         except KeyError:
             if self._fallback:
                 return self._fallback.npgettext(context, msgid1, msgid2, n)
-            if n == 1:
-                tmsg = msgid1
-            else:
-                tmsg = msgid2
+            tmsg = msgid1 if n == 1 else msgid2
         return tmsg
 
 
@@ -484,10 +477,7 @@ def find(domain, localedir=None, languages=None, all=False):
             if nelang not in nelangs:
                 nelangs.append(nelang)
     # select a language
-    if all:
-        result = []
-    else:
-        result = None
+    result = [] if all else None
     for lang in nelangs:
         if lang == 'C':
             break
