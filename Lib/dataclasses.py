@@ -477,26 +477,20 @@ def _field_init(f, frozen, globals, self_name, slots):
 
             globals[default_name] = f.default_factory
             value = f'{default_name}()'
+    elif f.init:
+        if f.default is not MISSING:
+            globals[default_name] = f.default
+        # There's no default, just do an assignment.
+        value = f.name
     else:
-        # No default factory.
-        if f.init:
-            if f.default is MISSING:
-                # There's no default, just do an assignment.
-                value = f.name
-            elif f.default is not MISSING:
-                globals[default_name] = f.default
-                value = f.name
-        else:
-            # If the class has slots, then initialize this field.
-            if slots and f.default is not MISSING:
-                globals[default_name] = f.default
-                value = default_name
-            else:
-                # This field does not need initialization: reading from it will
-                # just use the class attribute that contains the default.
-                # Signify that to the caller by returning None.
-                return None
+        if not slots or f.default is MISSING:
+            # This field does not need initialization: reading from it will
+            # just use the class attribute that contains the default.
+            # Signify that to the caller by returning None.
+            return None
 
+        globals[default_name] = f.default
+        value = default_name
     # Only test this now, so that we can create variables for the
     # default.  However, return None to signify that we're not going
     # to actually do the assignment statement for InitVars.
@@ -520,7 +514,7 @@ def _init_param(f):
         # There's a default, this will be the name that's used to look
         # it up.
         default = f'=_dflt_{f.name}'
-    elif f.default_factory is not MISSING:
+    else:
         # There's a factory function.  Set a marker.
         default = '=_HAS_DEFAULT_FACTORY'
     return f'{f.name}:_type_{f.name}{default}'
@@ -540,7 +534,7 @@ def _init_fn(fields, std_fields, kw_only_fields, frozen, has_post_init,
     for f in std_fields:
         # Only consider the non-kw-only fields in the __init__ call.
         if f.init:
-            if not (f.default is MISSING and f.default_factory is MISSING):
+            if f.default is not MISSING or f.default_factory is not MISSING:
                 seen_default = True
             elif seen_default:
                 raise TypeError(f'non-default argument {f.name!r} '
@@ -604,21 +598,27 @@ def _frozen_get_del_attr(cls, fields, globals):
     else:
         # Special case for the zero-length tuple.
         fields_str = '()'
-    return (_create_fn('__setattr__',
-                      ('self', 'name', 'value'),
-                      (f'if type(self) is cls or name in {fields_str}:',
-                        ' raise FrozenInstanceError(f"cannot assign to field {name!r}")',
-                       f'super(cls, self).__setattr__(name, value)'),
-                       locals=locals,
-                       globals=globals),
-            _create_fn('__delattr__',
-                      ('self', 'name'),
-                      (f'if type(self) is cls or name in {fields_str}:',
-                        ' raise FrozenInstanceError(f"cannot delete field {name!r}")',
-                       f'super(cls, self).__delattr__(name)'),
-                       locals=locals,
-                       globals=globals),
-            )
+    return _create_fn(
+        '__setattr__',
+        ('self', 'name', 'value'),
+        (
+            f'if type(self) is cls or name in {fields_str}:',
+            ' raise FrozenInstanceError(f"cannot assign to field {name!r}")',
+            'super(cls, self).__setattr__(name, value)',
+        ),
+        locals=locals,
+        globals=globals,
+    ), _create_fn(
+        '__delattr__',
+        ('self', 'name'),
+        (
+            f'if type(self) is cls or name in {fields_str}:',
+            ' raise FrozenInstanceError(f"cannot delete field {name!r}")',
+            'super(cls, self).__delattr__(name)',
+        ),
+        locals=locals,
+        globals=globals,
+    )
 
 
 def _cmp_fn(name, op, self_tuple, other_tuple, globals):
@@ -761,12 +761,18 @@ def _get_field(cls, a_name, a_type, default_kw_only):
     # typing has been imported by any module (not necessarily cls's
     # module).
     typing = sys.modules.get('typing')
-    if typing:
-        if (_is_classvar(a_type, typing)
-            or (isinstance(f.type, str)
-                and _is_type(f.type, cls, typing, typing.ClassVar,
-                             _is_classvar))):
-            f._field_type = _FIELD_CLASSVAR
+    if typing and (
+        (
+            _is_classvar(a_type, typing)
+            or (
+                isinstance(f.type, str)
+                and _is_type(
+                    f.type, cls, typing, typing.ClassVar, _is_classvar
+                )
+            )
+        )
+    ):
+        f._field_type = _FIELD_CLASSVAR
 
     # If the type is InitVar, or if it's a matching string annotation,
     # then it's an InitVar.
@@ -785,16 +791,12 @@ def _get_field(cls, a_name, a_type, default_kw_only):
     # know the field name, which allows for better error reporting.
 
     # Special restrictions for ClassVar and InitVar.
-    if f._field_type in (_FIELD_CLASSVAR, _FIELD_INITVAR):
-        if f.default_factory is not MISSING:
-            raise TypeError(f'field {f.name} cannot have a '
-                            'default factory')
-        # Should I check for other field settings? default_factory
-        # seems the most serious to check for.  Maybe add others.  For
-        # example, how about init=False (or really,
-        # init=<not-the-default-init-value>)?  It makes no sense for
-        # ClassVar and InitVar to specify init=<anything>.
-
+    if (
+        f._field_type in (_FIELD_CLASSVAR, _FIELD_INITVAR)
+        and f.default_factory is not MISSING
+    ):
+        raise TypeError(f'field {f.name} cannot have a '
+                        'default factory')
     # kw_only validation and assignment.
     if f._field_type in (_FIELD, _FIELD_INITVAR):
         # For real and InitVar fields, if kw_only wasn't specified use the
@@ -978,7 +980,7 @@ def _process_class(cls, init, repr, eq, order, unsafe_hash, frozen,
 
     # Do we have any Field members that don't also have annotations?
     for name, value in cls.__dict__.items():
-        if isinstance(value, Field) and not name in cls_annotations:
+        if isinstance(value, Field) and name not in cls_annotations:
             raise TypeError(f'{name!r} is a field but has no type annotation')
 
     # Check rules that apply if we are derived from any dataclasses.
@@ -1003,8 +1005,10 @@ def _process_class(cls, init, repr, eq, order, unsafe_hash, frozen,
     # that such a __hash__ == None was not auto-generated, but it
     # close enough.
     class_hash = cls.__dict__.get('__hash__', MISSING)
-    has_explicit_hash = not (class_hash is MISSING or
-                             (class_hash is None and '__eq__' in cls.__dict__))
+    has_explicit_hash = class_hash is not MISSING and (
+        class_hash is not None or '__eq__' not in cls.__dict__
+    )
+
 
     # If we're generating ordering methods, we must be generating the
     # eq methods.

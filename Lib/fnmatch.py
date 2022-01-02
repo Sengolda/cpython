@@ -53,19 +53,16 @@ def _compile_pattern(pat):
 
 def filter(names, pat):
     """Construct a list from those elements of the iterable NAMES that match PAT."""
-    result = []
     pat = os.path.normcase(pat)
     match = _compile_pattern(pat)
-    if os.path is posixpath:
-        # normcase on posix is NOP. Optimize it away from the loop.
-        for name in names:
-            if match(name):
-                result.append(name)
-    else:
-        for name in names:
-            if match(os.path.normcase(name)):
-                result.append(name)
-    return result
+    return [
+        name
+        for name in names
+        if os.path is posixpath
+        and match(name)
+        or os.path is not posixpath
+        and match(os.path.normcase(name))
+    ]
 
 def fnmatchcase(name, pat):
     """Test whether FILENAME matches PATTERN, including case.
@@ -89,7 +86,7 @@ def translate(pat):
     i, n = 0, len(pat)
     while i < n:
         c = pat[i]
-        i = i+1
+        i += 1
         if c == '*':
             # compress consecutive `*` into one
             if (not res) or res[-1] is not STAR:
@@ -99,11 +96,11 @@ def translate(pat):
         elif c == '[':
             j = i
             if j < n and pat[j] == '!':
-                j = j+1
+                j += 1
             if j < n and pat[j] == ']':
-                j = j+1
+                j += 1
             while j < n and pat[j] != ']':
-                j = j+1
+                j += 1
             if j >= n:
                 add('\\[')
             else:

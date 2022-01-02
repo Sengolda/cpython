@@ -71,9 +71,9 @@ def _reduce_ex(self, proto):
         base = object # not really reachable
     if base is object:
         state = None
+    elif base is cls:
+        raise TypeError(f"cannot pickle {cls.__name__!r} object")
     else:
-        if base is cls:
-            raise TypeError(f"cannot pickle {cls.__name__!r} object")
         state = base(self)
     args = (cls, base, state)
     try:
@@ -124,10 +124,7 @@ def _slotnames(cls):
 
     # Not cached -- calculate the value
     names = []
-    if not hasattr(cls, "__slots__"):
-        # This class has no slots
-        pass
-    else:
+    if hasattr(cls, "__slots__"):
         # Slots found -- gather slot names from all base classes
         for c in cls.__mro__:
             if "__slots__" in c.__dict__:

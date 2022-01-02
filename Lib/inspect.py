@@ -270,10 +270,9 @@ def get_annotations(obj, *, globals=None, locals=None, eval_str=False):
     if locals is None:
         locals = obj_locals
 
-    return_value = {key:
+    return {key:
         value if not isinstance(value, str) else eval(value, globals, locals)
         for key, value in ann.items() }
-    return return_value
 
 
 # ----------------------------------------------------------- type-checking
@@ -540,10 +539,7 @@ def isabstract(object):
     return False
 
 def _getmembers(object, predicate, getter):
-    if isclass(object):
-        mro = (object,) + getmro(object)
-    else:
-        mro = ()
+    mro = (object,) + getmro(object) if isclass(object) else ()
     results = []
     processed = set()
     names = dir(object)
@@ -668,9 +664,6 @@ def classify_class_attrs(cls):
             else:
                 homecls = getattr(get_obj, "__objclass__", homecls)
                 if homecls not in class_bases:
-                    # if the resulting object does not live somewhere in the
-                    # mro, drop it and search the mro manually
-                    homecls = None
                     last_cls = None
                     # first look in the classes
                     for srch_cls in class_bases:
@@ -685,8 +678,7 @@ def classify_class_attrs(cls):
                             continue
                         if srch_obj is get_obj:
                             last_cls = srch_cls
-                    if last_cls is not None:
-                        homecls = last_cls
+                    homecls = last_cls if last_cls is not None else None
         for base in all_bases:
             if name in base.__dict__:
                 dict_obj = base.__dict__[name]
@@ -1127,16 +1119,15 @@ def getcomments(object):
         start = 0
         if lines and lines[0][:2] == '#!': start = 1
         while start < len(lines) and lines[start].strip() in ('', '#'):
-            start = start + 1
+            start += 1
         if start < len(lines) and lines[start][:1] == '#':
             comments = []
             end = start
             while end < len(lines) and lines[end][:1] == '#':
                 comments.append(lines[end].expandtabs())
-                end = end + 1
+                end += 1
             return ''.join(comments)
 
-    # Look for a preceding block of comments at the same indentation.
     elif lnum > 0:
         indent = indentsize(lines[lnum])
         end = lnum - 1
@@ -1324,9 +1315,7 @@ def getargs(co):
     if co.co_flags & CO_VARARGS:
         varargs = co.co_varnames[nargs]
         nargs = nargs + 1
-    varkw = None
-    if co.co_flags & CO_VARKEYWORDS:
-        varkw = co.co_varnames[nargs]
+    varkw = co.co_varnames[nargs] if co.co_flags & CO_VARKEYWORDS else None
     return Arguments(args + kwonlyargs, varargs, varkw)
 
 
@@ -1525,9 +1514,6 @@ def getcallargs(func, /, *positional, **named):
     spec = getfullargspec(func)
     args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, ann = spec
     f_name = func.__name__
-    arg2value = {}
-
-
     if ismethod(func) and func.__self__ is not None:
         # implicit 'self' (or 'cls' for classmethods) argument
         positional = (func.__self__,) + positional
@@ -1536,8 +1522,9 @@ def getcallargs(func, /, *positional, **named):
     num_defaults = len(defaults) if defaults else 0
 
     n = min(num_pos, num_args)
-    for i in range(n):
-        arg2value[args[i]] = positional[i]
+    arg2value = {args[i]: positional[i] for i in range(n)}
+
+
     if varargs:
         arg2value[varargs] = tuple(positional[n:])
     possible_kwargs = set(args + kwonlyargs)
@@ -1749,9 +1736,11 @@ def _shadowed_dict(klass):
         except KeyError:
             pass
         else:
-            if not (type(class_dict) is types.GetSetDescriptorType and
-                    class_dict.__name__ == "__dict__" and
-                    class_dict.__objclass__ is entry):
+            if (
+                type(class_dict) is not types.GetSetDescriptorType
+                or class_dict.__name__ != "__dict__"
+                or class_dict.__objclass__ is not entry
+            ):
                 return class_dict
     return _sentinel
 
@@ -1778,10 +1767,15 @@ def getattr_static(obj, attr, default=_sentinel):
 
     klass_result = _check_class(klass, attr)
 
-    if instance_result is not _sentinel and klass_result is not _sentinel:
-        if (_check_class(type(klass_result), '__get__') is not _sentinel and
-            _check_class(type(klass_result), '__set__') is not _sentinel):
-            return klass_result
+    if (
+        instance_result is not _sentinel
+        and klass_result is not _sentinel
+        and (
+            _check_class(type(klass_result), '__get__') is not _sentinel
+            and _check_class(type(klass_result), '__set__') is not _sentinel
+        )
+    ):
+        return klass_result
 
     if instance_result is not _sentinel:
         return instance_result
@@ -2003,14 +1997,10 @@ def _signature_bound_method(sig):
         # Drop first parameter:
         # '(p1, p2[, ...])' -> '(p2[, ...])'
         params = params[1:]
-    else:
-        if kind is not _VAR_POSITIONAL:
-            # Unless we add a new parameter type we never
-            # get here
-            raise ValueError('invalid argument type')
-        # It's a var-positional parameter.
-        # Do nothing. '(*args[, ...])' -> '(*args[, ...])'
-
+    elif kind is not _VAR_POSITIONAL:
+        # Unless we add a new parameter type we never
+        # get here
+        raise ValueError('invalid argument type')
     return sig.replace(parameters=params)
 
 
@@ -2114,7 +2104,7 @@ def _signature_strip_non_python_syntax(signature):
 
         if delayed_comma:
             delayed_comma = False
-            if not ((type == OP) and (string == ')')):
+            if type != OP or string != ')':
                 add(', ')
         add(string)
         if (string == ','):
@@ -2304,11 +2294,7 @@ def _signature_from_function(cls, func, skip_bound_arg=True,
     defaults = func.__defaults__
     kwdefaults = func.__kwdefaults__
 
-    if defaults:
-        pos_default_count = len(defaults)
-    else:
-        pos_default_count = 0
-
+    pos_default_count = len(defaults) if defaults else 0
     parameters = []
 
     non_default_count = pos_count - pos_default_count
@@ -2443,12 +2429,11 @@ def _signature_from_callable(obj, *,
                 # First argument of the wrapped callable is `*args`, as in
                 # `partialmethod(lambda *args)`.
                 return sig
-            else:
-                sig_params = tuple(sig.parameters.values())
-                assert (not sig_params or
-                        first_wrapped_param is not sig_params[0])
-                new_params = (first_wrapped_param,) + sig_params
-                return sig.replace(parameters=new_params)
+            sig_params = tuple(sig.parameters.values())
+            assert (not sig_params or
+                    first_wrapped_param is not sig_params[0])
+            new_params = (first_wrapped_param,) + sig_params
+            return sig.replace(parameters=new_params)
 
     if isfunction(obj) or _signature_is_functionlike(obj):
         # If it's a pure Python function, or an object that is duck type
@@ -2479,17 +2464,14 @@ def _signature_from_callable(obj, *,
             new = _signature_get_user_defined_method(obj, '__new__')
             init = _signature_get_user_defined_method(obj, '__init__')
             # Now we check if the 'obj' class has an own '__new__' method
-            if '__new__' in obj.__dict__:
+            if (
+                '__new__' in obj.__dict__
+                or '__init__' not in obj.__dict__
+                and new is not None
+            ):
                 factory_method = new
-            # or an own '__init__' method
-            elif '__init__' in obj.__dict__:
+            elif '__init__' in obj.__dict__ or init is not None:
                 factory_method = init
-            # If not, we take inherited '__new__' or '__init__', if present
-            elif new is not None:
-                factory_method = new
-            elif init is not None:
-                factory_method = init
-
             if factory_method is not None:
                 sig = _get_signature_of(factory_method)
 
@@ -2629,11 +2611,10 @@ class Parameter:
             self._kind = _ParameterKind(kind)
         except ValueError:
             raise ValueError(f'value {kind!r} is not a valid Parameter.kind')
-        if default is not _empty:
-            if self._kind in (_VAR_POSITIONAL, _VAR_KEYWORD):
-                msg = '{} parameters cannot have default values'
-                msg = msg.format(self._kind.description)
-                raise ValueError(msg)
+        if default is not _empty and self._kind in (_VAR_POSITIONAL, _VAR_KEYWORD):
+            msg = '{} parameters cannot have default values'
+            msg = msg.format(self._kind.description)
+            raise ValueError(msg)
         self._default = default
         self._annotation = annotation
 

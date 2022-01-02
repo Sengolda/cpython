@@ -40,11 +40,7 @@ def mksalt(method=None, *, rounds=None):
     if rounds is not None and not isinstance(rounds, int):
         raise TypeError(f'{rounds.__class__.__name__} object cannot be '
                         f'interpreted as an integer')
-    if not method.ident:  # traditional
-        s = ''
-    else:  # modular
-        s = f'${method.ident}$'
-
+    s = '' if not method.ident else f'${method.ident}$'
     if method.ident and method.ident[0] == '2':  # Blowfish variants
         if rounds is None:
             log_rounds = 12

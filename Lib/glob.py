@@ -42,10 +42,7 @@ def iglob(pathname, *, root_dir=None, dir_fd=None, recursive=False,
     """
     sys.audit("glob.glob", pathname, recursive)
     sys.audit("glob.glob/2", pathname, recursive, root_dir, dir_fd)
-    if root_dir is not None:
-        root_dir = os.fspath(root_dir)
-    else:
-        root_dir = pathname[:0]
+    root_dir = os.fspath(root_dir) if root_dir is not None else pathname[:0]
     it = _iglob(pathname, root_dir, dir_fd, recursive, False,
                 include_hidden=include_hidden)
     if not pathname or recursive and _isrecursive(pathname[:2]):
@@ -62,13 +59,13 @@ def _iglob(pathname, root_dir, dir_fd, recursive, dironly,
     dirname, basename = os.path.split(pathname)
     if not has_magic(pathname):
         assert not dironly
-        if basename:
-            if _lexists(_join(root_dir, pathname), dir_fd):
-                yield pathname
-        else:
-            # Patterns ending with a slash should match only directories
-            if _isdir(_join(root_dir, dirname), dir_fd):
-                yield pathname
+        if (
+            basename
+            and _lexists(_join(root_dir, pathname), dir_fd)
+            or not basename
+            and _isdir(_join(root_dir, dirname), dir_fd)
+        ):
+            yield pathname
         return
     if not dirname:
         if recursive and _isrecursive(basename):
@@ -109,14 +106,13 @@ def _glob1(dirname, pattern, dir_fd, dironly, include_hidden=False):
     return fnmatch.filter(names, pattern)
 
 def _glob0(dirname, basename, dir_fd, dironly, include_hidden=False):
-    if basename:
-        if _lexists(_join(dirname, basename), dir_fd):
-            return [basename]
-    else:
-        # `os.path.split()` returns an empty basename for paths ending with a
-        # directory separator.  'q*x/' should match only directories.
-        if _isdir(dirname, dir_fd):
-            return [basename]
+    if (
+        basename
+        and _lexists(_join(dirname, basename), dir_fd)
+        or not basename
+        and _isdir(dirname, dir_fd)
+    ):
+        return [basename]
     return []
 
 # Following functions are not public but can be used by third-party code.

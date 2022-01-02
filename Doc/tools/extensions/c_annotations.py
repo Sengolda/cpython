@@ -19,6 +19,7 @@
     :license: Python license.
 """
 
+
 from os import path
 from docutils import nodes
 from docutils.parsers.rst import directives
@@ -33,7 +34,6 @@ from sphinx.domains.c import CObject
 REST_ROLE_MAP = {
     'function': 'func',
     'var': 'data',
-    'type': 'type',
     'macro': 'macro',
     'type': 'type',
 }
@@ -128,9 +128,7 @@ class Annotations:
             if objtype != 'function':
                 continue
             entry = self.refcount_data.get(name)
-            if not entry:
-                continue
-            elif not entry.result_type.endswith("Object*"):
+            if not entry or entry and not entry.result_type.endswith("Object*"):
                 continue
             if entry.result_refs is None:
                 rc = 'Return value: Always NULL.'

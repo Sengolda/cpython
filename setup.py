@@ -301,43 +301,30 @@ def find_library_file(compiler, libname, std_dirs, paths):
         # Ensure path doesn't end with path separator
         p = p.rstrip(os.sep)
 
-        if MACOS and is_macosx_sdk_path(p):
-            # Note that, as of Xcode 7, Apple SDKs may contain textual stub
-            # libraries with .tbd extensions rather than the normal .dylib
-            # shared libraries installed in /.  The Apple compiler tool
-            # chain handles this transparently but it can cause problems
-            # for programs that are being built with an SDK and searching
-            # for specific libraries.  Distutils find_library_file() now
-            # knows to also search for and return .tbd files.  But callers
-            # of find_library_file need to keep in mind that the base filename
-            # of the returned SDK library file might have a different extension
-            # from that of the library file installed on the running system,
-            # for example:
-            #   /Applications/Xcode.app/Contents/Developer/Platforms/
-            #       MacOSX.platform/Developer/SDKs/MacOSX10.11.sdk/
-            #       usr/lib/libedit.tbd
-            # vs
-            #   /usr/lib/libedit.dylib
-            if os.path.join(sysroot, p[1:]) == dirname:
-                return [ ]
+        if (
+            MACOS
+            and is_macosx_sdk_path(p)
+            and os.path.join(sysroot, p[1:]) == dirname
+        ):
+            return [ ]
 
         if p == dirname:
             return [ ]
 
-    # Otherwise, it must have been in one of the additional directories,
-    # so we have to figure out which one.
     for p in paths:
         # Ensure path doesn't end with path separator
         p = p.rstrip(os.sep)
 
-        if MACOS and is_macosx_sdk_path(p):
-            if os.path.join(sysroot, p[1:]) == dirname:
-                return [ p ]
+        if (
+            MACOS
+            and is_macosx_sdk_path(p)
+            and os.path.join(sysroot, p[1:]) == dirname
+        ):
+            return [ p ]
 
         if p == dirname:
             return [p]
-    else:
-        assert False, "Internal error: Path not found in std_dirs or paths"
+    assert False, "Internal error: Path not found in std_dirs or paths"
 
 
 def validate_tzpath():
@@ -395,10 +382,7 @@ class PyBuildExt(build_ext):
             self.disabled_configure.append(ext.name)
         elif state == "missing":
             self.missing.append(ext.name)
-        elif state == "n/a":
-            # not available on current platform
-            pass
-        else:
+        elif state != "n/a":
             # not migrated to MODULE_{name} yet.
             self.announce(
                 f'WARNING: Makefile is missing module variable for "{ext.name}"',
@@ -438,7 +422,7 @@ class PyBuildExt(build_ext):
         ldflags = sysconfig.get_config_var(f"MODULE_{upper_name}_LDFLAGS")
         if ldflags:
             for token in shlex.split(ldflags):
-                switch = token[0:2]
+                switch = token[:2]
                 value = token[2:]
                 if switch == '-L':
                     ext.library_dirs.append(value)
@@ -466,7 +450,7 @@ class PyBuildExt(build_ext):
         extensions = [ext for ext in self.extensions
                       if ext.name not in DISABLED_MODULE_LIST]
         # move ctypes to the end, it depends on other modules
-        ext_map = dict((ext.name, i) for i, ext in enumerate(extensions))
+        ext_map = {ext.name: i for i, ext in enumerate(extensions)}
         if "_ctypes" in ext_map:
             ctypes = extensions.pop(ext_map["_ctypes"])
             extensions.append(ctypes)
@@ -672,10 +656,9 @@ class PyBuildExt(build_ext):
 
     def build_extension(self, ext):
 
-        if ext.name == '_ctypes':
-            if not self.configure_ctypes(ext):
-                self.failed.append(ext.name)
-                return
+        if ext.name == '_ctypes' and not self.configure_ctypes(ext):
+            self.failed.append(ext.name)
+            return
 
         try:
             build_ext.build_extension(self, ext)
@@ -1157,16 +1140,16 @@ class PyBuildExt(build_ext):
         if MACOS:
             os_release = int(os.uname()[2].split('.')[0])
             dep_target = sysconfig.get_config_var('MACOSX_DEPLOYMENT_TARGET')
-            if (dep_target and
-                    (tuple(int(n) for n in dep_target.split('.')[0:2])
-                        < (10, 5) ) ):
+            if dep_target and tuple(int(n) for n in dep_target.split('.')[:2]) < (
+                10,
+                5,
+            ):
                 os_release = 8
-            if os_release < 9:
-                # MacOSX 10.4 has a broken readline. Don't try to build
-                # the readline module unless the user has installed a fixed
-                # readline package
-                if find_file('readline/rlconf.h', self.inc_dirs, []) is None:
-                    do_readline = False
+            if (
+                os_release < 9
+                and find_file('readline/rlconf.h', self.inc_dirs, []) is None
+            ):
+                do_readline = False
         if do_readline:
             readline_libs = [readline_lib]
             if readline_termcap_library:
@@ -1234,7 +1217,7 @@ class PyBuildExt(build_ext):
 
         # If the curses module is enabled, check for the panel module
         # _curses_panel needs some form of ncurses
-        skip_curses_panel = True if AIX else False
+        skip_curses_panel = bool(AIX)
         if (curses_enabled and not skip_curses_panel and
                 self.compiler.find_library_file(self.lib_dirs, panel_library)):
             self.add(Extension('_curses_panel', ['_curses_panel.c'],
@@ -1248,14 +1231,6 @@ class PyBuildExt(build_ext):
          self.addext(Extension('_crypt', ['_cryptmodule.c']))
 
     def detect_dbm_gdbm(self):
-        # Modules that provide persistent dictionary-like semantics.  You will
-        # probably want to arrange for at least one of them to be available on
-        # your machine, though none are defined by default because of library
-        # dependencies.  The Python module dbm/__init__.py provides an
-        # implementation independent wrapper for these; dbm/dumb.py provides
-        # similar functionality (but slower of course) implemented in Python.
-
-        dbm_setup_debug = False   # verbose debug prints from this script?
         dbm_order = ['gdbm']
 
         # libdb, gdbm and ndbm headers and libraries
@@ -1277,6 +1252,14 @@ class PyBuildExt(build_ext):
             else:
                 dbm_order = "ndbm:gdbm:bdb".split(":")
             dbmext = None
+            # Modules that provide persistent dictionary-like semantics.  You will
+            # probably want to arrange for at least one of them to be available on
+            # your machine, though none are defined by default because of library
+            # dependencies.  The Python module dbm/__init__.py provides an
+            # implementation independent wrapper for these; dbm/dumb.py provides
+            # similar functionality (but slower of course) implemented in Python.
+
+            dbm_setup_debug = False   # verbose debug prints from this script?
             for cand in dbm_order:
                 if cand == "ndbm":
                     if have_ndbm_h:
@@ -1551,8 +1534,6 @@ class PyBuildExt(build_ext):
                 join(sysroot, 'System', 'Library', 'Frameworks'),
             ]
 
-        # Find the directory that contains the Tcl.framework and
-        # Tk.framework bundles.
         for F in framework_dirs:
             # both Tcl.framework and Tk.framework should be present
             for fw in 'Tcl', 'Tk':
@@ -1562,60 +1543,9 @@ class PyBuildExt(build_ext):
                 # ok, F is now directory with both frameworks. Continue
                 # building
                 break
-        else:
-            # Tk and Tcl frameworks not found. Normal "unix" tkinter search
-            # will now resume.
-            return False
-
-        include_dirs = [
-            join(F, fw + '.framework', H)
-            for fw in ('Tcl', 'Tk')
-            for H in ('Headers',)
-        ]
-
-        # Add the base framework directory as well
-        compile_args = ['-F', F]
-
-        # Do not build tkinter for archs that this Tk was not built with.
-        cflags = sysconfig.get_config_vars('CFLAGS')[0]
-        archs = re.findall(r'-arch\s+(\w+)', cflags)
-
-        tmpfile = os.path.join(self.build_temp, 'tk.arch')
-        if not os.path.exists(self.build_temp):
-            os.makedirs(self.build_temp)
-
-        run_command(
-            "file {}/Tk.framework/Tk | grep 'for architecture' > {}".format(F, tmpfile)
-        )
-        with open(tmpfile) as fp:
-            detected_archs = []
-            for ln in fp:
-                a = ln.split()[-1]
-                if a in archs:
-                    detected_archs.append(ln.split()[-1])
-        os.unlink(tmpfile)
-
-        arch_args = []
-        for a in detected_archs:
-            arch_args.append('-arch')
-            arch_args.append(a)
-
-        compile_args += arch_args
-        link_args = [','.join(['-Wl', '-F', F, '-framework', 'Tcl', '-framework', 'Tk']), *arch_args]
-
-        # The X11/xlib.h file bundled in the Tk sources can cause function
-        # prototype warnings from the compiler. Since we cannot easily fix
-        # that, suppress the warnings here instead.
-        if '-Wstrict-prototypes' in cflags.split():
-            compile_args.append('-Wno-strict-prototypes')
-
-        self.add(Extension('_tkinter', ['_tkinter.c', 'tkappinit.c'],
-                           define_macros=[('WITH_APPINIT', 1)],
-                           include_dirs=include_dirs,
-                           libraries=[],
-                           extra_compile_args=compile_args,
-                           extra_link_args=link_args))
-        return True
+        # Tk and Tcl frameworks not found. Normal "unix" tkinter search
+        # will now resume.
+        return False
 
     def detect_tkinter(self):
         # The _tkinter module.

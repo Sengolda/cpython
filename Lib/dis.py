@@ -163,15 +163,17 @@ def code_info(x):
     return _format_code_info(_get_code_object(x))
 
 def _format_code_info(co):
-    lines = []
-    lines.append("Name:              %s" % co.co_name)
-    lines.append("Filename:          %s" % co.co_filename)
-    lines.append("Argument count:    %s" % co.co_argcount)
-    lines.append("Positional-only arguments: %s" % co.co_posonlyargcount)
-    lines.append("Kw-only arguments: %s" % co.co_kwonlyargcount)
-    lines.append("Number of locals:  %s" % co.co_nlocals)
-    lines.append("Stack size:        %s" % co.co_stacksize)
-    lines.append("Flags:             %s" % pretty_flags(co.co_flags))
+    lines = [
+        "Name:              %s" % co.co_name,
+        "Filename:          %s" % co.co_filename,
+        "Argument count:    %s" % co.co_argcount,
+        "Positional-only arguments: %s" % co.co_posonlyargcount,
+        "Kw-only arguments: %s" % co.co_kwonlyargcount,
+        "Number of locals:  %s" % co.co_nlocals,
+        "Stack size:        %s" % co.co_stacksize,
+        "Flags:             %s" % pretty_flags(co.co_flags),
+    ]
+
     if co.co_consts:
         lines.append("Constants:")
         for i_c in enumerate(co.co_consts):
@@ -311,10 +313,7 @@ def get_instructions(x, *, first_line=None):
     """
     co = _get_code_object(x)
     linestarts = dict(findlinestarts(co))
-    if first_line is not None:
-        line_offset = first_line - co.co_firstlineno
-    else:
-        line_offset = 0
+    line_offset = first_line - co.co_firstlineno if first_line is not None else 0
     return _get_instructions_bytes(co.co_code,
                                    co._varname_from_oparg,
                                    co.co_names, co.co_consts,
@@ -330,9 +329,8 @@ def _get_const_value(op, arg, co_consts):
     assert op in hasconst
 
     argval = UNKNOWN
-    if op == LOAD_CONST:
-        if co_consts is not None:
-            argval = co_consts[arg]
+    if op == LOAD_CONST and co_consts is not None:
+        argval = co_consts[arg]
     return argval
 
 def _get_const_info(op, arg, co_consts):
@@ -402,7 +400,7 @@ def _get_instructions_bytes(code, varname_from_oparg=None,
     get_name = None if names is None else names.__getitem__
     labels = set(findlabels(code))
     for start, end, target, _, _ in exception_entries:
-        for i in range(start, end):
+        for _ in range(start, end):
             labels.add(target)
     starts_line = None
     for offset, op, arg in _unpack_opargs(code):
@@ -482,17 +480,11 @@ def _disassemble_bytes(code, lasti=-1, varname_from_oparg=None,
     show_lineno = bool(linestarts)
     if show_lineno:
         maxlineno = max(linestarts.values()) + line_offset
-        if maxlineno >= 1000:
-            lineno_width = len(str(maxlineno))
-        else:
-            lineno_width = 3
+        lineno_width = len(str(maxlineno)) if maxlineno >= 1000 else 3
     else:
         lineno_width = 0
     maxoffset = len(code) - 2
-    if maxoffset >= 10000:
-        offset_width = len(str(maxoffset))
-    else:
-        offset_width = 4
+    offset_width = len(str(maxoffset)) if maxoffset >= 10000 else 4
     for instr in _get_instructions_bytes(code, varname_from_oparg, names,
                                          co_consts, linestarts,
                                          line_offset=line_offset, exception_entries=exception_entries,
@@ -558,7 +550,7 @@ def findlinestarts(code):
     for start, end, line in code.co_lines():
         if line is not None and line != lastline:
             lastline = line
-            yield start, line
+            yield (start, lastline)
     return
 
 def _find_imports(co):
@@ -649,10 +641,7 @@ class Bytecode:
     def dis(self):
         """Return a formatted view of the bytecode operations."""
         co = self.codeobj
-        if self.current_offset is not None:
-            offset = self.current_offset
-        else:
-            offset = -1
+        offset = self.current_offset if self.current_offset is not None else -1
         with io.StringIO() as output:
             _disassemble_bytes(co.co_code,
                                varname_from_oparg=co._varname_from_oparg,

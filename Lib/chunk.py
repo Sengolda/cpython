@@ -53,10 +53,7 @@ class Chunk:
         import struct
         self.closed = False
         self.align = align      # whether to align to word (2-byte) boundaries
-        if bigendian:
-            strflag = '>'
-        else:
-            strflag = '<'
+        strflag = '>' if bigendian else '<'
         self.file = file
         self.chunkname = file.read(4)
         if len(self.chunkname) < 4:

@@ -554,10 +554,7 @@ class Decimal(object):
                 return context._raise_error(ConversionSyntax,
                                 "Invalid literal for Decimal: %r" % value)
 
-            if m.group('sign') == "-":
-                self._sign = 1
-            else:
-                self._sign = 0
+            self._sign = 1 if m.group('sign') == "-" else 0
             intpart = m.group('int')
             if intpart is not None:
                 # finite number
@@ -571,10 +568,7 @@ class Decimal(object):
                 if diag is not None:
                     # NaN
                     self._int = str(int(diag or '0')).lstrip('0')
-                    if m.group('signal'):
-                        self._exp = 'N'
-                    else:
-                        self._exp = 'n'
+                    self._exp = 'N' if m.group('signal') else 'n'
                 else:
                     # infinity
                     self._int = '0'
@@ -584,10 +578,7 @@ class Decimal(object):
 
         # From an integer
         if isinstance(value, int):
-            if value >= 0:
-                self._sign = 0
-            else:
-                self._sign = 1
+            self._sign = 0 if value >= 0 else 1
             self._exp = 0
             self._int = str(abs(value))
             self._is_special = False
@@ -630,14 +621,13 @@ class Decimal(object):
                 # process and validate the digits in value[1]
                 digits = []
                 for digit in value[1]:
-                    if isinstance(digit, int) and 0 <= digit <= 9:
-                        # skip leading zeros
-                        if digits or digit != 0:
-                            digits.append(digit)
-                    else:
+                    if not isinstance(digit, int) or not 0 <= digit <= 9:
                         raise ValueError("The second value in the tuple must "
                                          "be composed of integers in the range "
                                          "0 through 9.")
+                    # skip leading zeros
+                    if digits or digit != 0:
+                        digits.append(digit)
                 if value[2] in ('n', 'N'):
                     # NaN: digits form the diagnostic
                     self._int = ''.join(map(str, digits))
@@ -698,10 +688,7 @@ class Decimal(object):
         elif isinstance(f, float):
             if _math.isinf(f) or _math.isnan(f):
                 return cls(repr(f))
-            if _math.copysign(1.0, f) == 1.0:
-                sign = 0
-            else:
-                sign = 1
+            sign = 0 if _math.copysign(1.0, f) == 1.0 else 1
             n, d = abs(f).as_integer_ratio()
             k = d.bit_length() - 1
             coeff = str(n*5**k)
@@ -753,11 +740,7 @@ class Decimal(object):
         """
 
         self_is_nan = self._isnan()
-        if other is None:
-            other_is_nan = False
-        else:
-            other_is_nan = other._isnan()
-
+        other_is_nan = False if other is None else other._isnan()
         if self_is_nan or other_is_nan:
             if context is None:
                 context = getcontext()
@@ -1102,13 +1085,13 @@ class Decimal(object):
         if context is None:
             context = getcontext()
 
-        if not self and context.rounding != ROUND_FLOOR:
+        if self or context.rounding == ROUND_FLOOR:
+            ans = self.copy_negate()
+
+        else:
             # -Decimal('0') is Decimal('0'), not Decimal('-0'), except
             # in ROUND_FLOOR rounding mode.
             ans = self.copy_abs()
-        else:
-            ans = self.copy_negate()
-
         return ans._fix(context)
 
     def __pos__(self, context=None):
@@ -1124,12 +1107,12 @@ class Decimal(object):
         if context is None:
             context = getcontext()
 
-        if not self and context.rounding != ROUND_FLOOR:
-            # + (-0) = 0, except in ROUND_FLOOR rounding mode.
-            ans = self.copy_abs()
-        else:
+        if self or context.rounding == ROUND_FLOOR:
             ans = Decimal(self)
 
+        else:
+            # + (-0) = 0, except in ROUND_FLOOR rounding mode.
+            ans = self.copy_abs()
         return ans._fix(context)
 
     def __abs__(self, round=True, context=None):
@@ -1230,11 +1213,7 @@ class Decimal(object):
             result.sign = 0
         # Now, op1 > abs(op2) > 0
 
-        if op2.sign == 0:
-            result.int = op1.int + op2.int
-        else:
-            result.int = op1.int - op2.int
-
+        result.int = op1.int + op2.int if op2.sign == 0 else op1.int - op2.int
         result.exp = op1.exp
         ans = Decimal(result)
         ans = ans._fix(context)
@@ -1387,11 +1366,7 @@ class Decimal(object):
         infinite and that other is nonzero.
         """
         sign = self._sign ^ other._sign
-        if other._isinfinity():
-            ideal_exp = self._exp
-        else:
-            ideal_exp = min(self._exp, other._exp)
-
+        ideal_exp = self._exp if other._isinfinity() else min(self._exp, other._exp)
         expdiff = self.adjusted() - other.adjusted()
         if not self or other._isinfinity() or expdiff <= -2:
             return (_dec_from_triple(sign, '0', 0),
@@ -1437,21 +1412,19 @@ class Decimal(object):
 
         sign = self._sign ^ other._sign
         if self._isinfinity():
-            if other._isinfinity():
-                ans = context._raise_error(InvalidOperation, 'divmod(INF, INF)')
-                return ans, ans
-            else:
+            if not other._isinfinity():
                 return (_SignedInfinity[sign],
                         context._raise_error(InvalidOperation, 'INF % x'))
 
+            ans = context._raise_error(InvalidOperation, 'divmod(INF, INF)')
+            return ans, ans
         if not other:
-            if not self:
-                ans = context._raise_error(DivisionUndefined, 'divmod(0, 0)')
-                return ans, ans
-            else:
+            if self:
                 return (context._raise_error(DivisionByZero, 'x // 0', sign),
                         context._raise_error(InvalidOperation, 'x % 0'))
 
+            ans = context._raise_error(DivisionUndefined, 'divmod(0, 0)')
+            return ans, ans
         quotient, remainder = self._divide(other, context)
         remainder = remainder._fix(context)
         return quotient, remainder
@@ -1683,12 +1656,11 @@ class Decimal(object):
         if not self:
             exp_max = [context.Emax, Etop][context.clamp]
             new_exp = min(max(self._exp, Etiny), exp_max)
-            if new_exp != self._exp:
-                context._raise_error(Clamped)
-                return _dec_from_triple(self._sign, '0', new_exp)
-            else:
+            if new_exp == self._exp:
                 return Decimal(self)
 
+            context._raise_error(Clamped)
+            return _dec_from_triple(self._sign, '0', new_exp)
         # exp_min is the smallest allowable exponent of the result,
         # equal to max(self.adjusted()-context.prec+1, Etiny)
         exp_min = len(self._int) + self._exp - context.prec
@@ -2029,11 +2001,7 @@ class Decimal(object):
                                         '0**0 is not defined')
 
         # compute sign of result
-        if other._iseven():
-            sign = 0
-        else:
-            sign = self._sign
-
+        sign = 0 if other._iseven() else self._sign
         # convert modulo to a Python integer, and self and other to
         # Decimal integers (i.e. force their exponents to be >= 0)
         modulo = abs(int(modulo))
@@ -2042,7 +2010,7 @@ class Decimal(object):
 
         # compute result using integer pow()
         base = (base.int % modulo * pow(10, base.exp, modulo)) % modulo
-        for i in range(exponent.exp):
+        for _ in range(exponent.exp):
             base = pow(base, 10, modulo)
         base = pow(base, exponent.int, modulo)
 
@@ -2258,7 +2226,7 @@ class Decimal(object):
                     break
                 else:
                     a = (a*(n-1) + q)//n
-            if not (a == q and r == 0):
+            if a != q or r != 0:
                 return None
             xc = a
 
@@ -2337,12 +2305,9 @@ class Decimal(object):
             if other._isinteger():
                 if not other._iseven():
                     result_sign = 1
-            else:
-                # -ve**noninteger = NaN
-                # (-0)**noninteger = 0**noninteger
-                if self:
-                    return context._raise_error(InvalidOperation,
-                        'x ** y with x negative and y not an integer')
+            elif self:
+                return context._raise_error(InvalidOperation,
+                    'x ** y with x negative and y not an integer')
             # negate self, without doing any unwanted rounding
             self = self.copy_negate()
 

@@ -86,12 +86,11 @@ class _PaddedFile:
     def read(self, size):
         if self._read is None:
             return self.file.read(size)
+        read = self._read
         if self._read + size <= self._length:
-            read = self._read
             self._read += size
             return self._buffer[read:self._read]
         else:
-            read = self._read
             self._read = None
             return self._buffer[read:] + \
                    self.file.read(size-self._length+read)
@@ -250,9 +249,7 @@ class GzipFile(_compression.BaseStream):
                 fname = fname[:-3]
         except UnicodeEncodeError:
             fname = b''
-        flags = 0
-        if fname:
-            flags = FNAME
+        flags = FNAME if fname else 0
         self.fileobj.write(chr(flags).encode('latin-1'))
         mtime = self._write_mtime
         if mtime is None:
@@ -385,7 +382,7 @@ class GzipFile(_compression.BaseStream):
                 raise OSError('Negative seek in write mode')
             count = offset - self.offset
             chunk = b'\0' * 1024
-            for i in range(count // 1024):
+            for _ in range(count // 1024):
                 self.write(chunk)
             self.write(b'\0' * (count % 1024))
         elif self.mode == READ:
@@ -645,14 +642,13 @@ def main():
                     sys.exit(f"filename doesn't end in .gz: {arg!r}")
                 f = open(arg, "rb")
                 g = builtins.open(arg[:-3], "wb")
+        elif arg == "-":
+            f = sys.stdin.buffer
+            g = GzipFile(filename="", mode="wb", fileobj=sys.stdout.buffer,
+                         compresslevel=compresslevel)
         else:
-            if arg == "-":
-                f = sys.stdin.buffer
-                g = GzipFile(filename="", mode="wb", fileobj=sys.stdout.buffer,
-                             compresslevel=compresslevel)
-            else:
-                f = builtins.open(arg, "rb")
-                g = open(arg + ".gz", "wb")
+            f = builtins.open(arg, "rb")
+            g = open(arg + ".gz", "wb")
         while True:
             chunk = f.read(io.DEFAULT_BUFFER_SIZE)
             if not chunk:
