@@ -109,8 +109,7 @@ if __name__ == '__main__':
     except ImportError:
         pass
 
-    repl_thread = REPLThread()
-    repl_thread.daemon = True
+    repl_thread = REPLThread(daemon=True)
     repl_thread.start()
 
     while True:
